@@ -1142,6 +1142,87 @@ describe("runCodexAppServerSideQuestion", () => {
     ).toBeUndefined();
   });
 
+  it("forwards correlated side-thread file changes to the approval bridge", async () => {
+    const client = createFakeClient();
+    let approvalResponse: unknown;
+    handleCodexAppServerApprovalRequestMock.mockResolvedValueOnce({ decision: "accept" });
+    client.request.mockImplementation(async (method: string) => {
+      if (method === "thread/fork") {
+        return threadResult("side-thread");
+      }
+      if (method === "thread/inject_items") {
+        return {};
+      }
+      if (method === "turn/start") {
+        setTimeout(() => {
+          void (async () => {
+            client.emit({
+              method: "item/started",
+              params: {
+                threadId: "side-thread",
+                turnId: "turn-1",
+                item: {
+                  type: "fileChange",
+                  id: "patch-side",
+                  changes: [
+                    { path: "src/side-a.ts", kind: "update" },
+                    { path: "src/side-b.ts", kind: "add" },
+                  ],
+                  status: "inProgress",
+                },
+              },
+            });
+            approvalResponse = await client.handleRequest({
+              id: 43,
+              method: "item/fileChange/requestApproval",
+              params: {
+                threadId: "side-thread",
+                turnId: "turn-1",
+                itemId: "patch-side",
+                reason: "side question needs a write",
+                startedAtMs: 123,
+              },
+            });
+            client.emit(turnCompleted("side-thread", "turn-1", "Side answer."));
+          })();
+        }, 0);
+        return turnStartResult("turn-1");
+      }
+      if (method === "thread/unsubscribe" || method === "turn/interrupt") {
+        return {};
+      }
+      throw new Error(`unexpected request: ${method}`);
+    });
+    getSharedCodexAppServerClientMock.mockResolvedValue(client);
+
+    await expect(
+      runCodexAppServerSideQuestion(sideParams({ opts: { runId: "run-side-file-approval" } })),
+    ).resolves.toEqual({ text: "Side answer." });
+
+    expect(approvalResponse).toEqual({ decision: "accept" });
+    expect(handleCodexAppServerApprovalRequestMock).toHaveBeenCalledTimes(1);
+    expect(handleCodexAppServerApprovalRequestMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "item/fileChange/requestApproval",
+        requestParams: {
+          threadId: "side-thread",
+          turnId: "turn-1",
+          itemId: "patch-side",
+          reason: "side question needs a write",
+          startedAtMs: 123,
+        },
+        fileChangeToolParams: {
+          changes: [
+            { path: "src/side-a.ts", kind: "update" },
+            { path: "src/side-b.ts", kind: "add" },
+          ],
+        },
+        threadId: "side-thread",
+        turnId: "turn-1",
+      }),
+    );
+  });
+
   it("unregisters the native hook relay when side thread fork fails", async () => {
     const client = createFakeClient();
     let relayIdDuringFork: string | undefined;

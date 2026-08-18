@@ -3515,6 +3515,75 @@ describe("runCodexAppServerAttempt", () => {
     expect(startParams?.sandbox).toBe("danger-full-access");
   });
 
+  it("passes correlated file changes to before_tool_call before approving the write", async () => {
+    const beforeToolCall = vi.fn();
+    initializeGlobalHookRunner(
+      createMockPluginRegistry([{ hookName: "before_tool_call", handler: beforeToolCall }]),
+    );
+    const sessionFile = path.join(tempDir, "session-file-approval.jsonl");
+    const workspaceDir = path.join(tempDir, "workspace-file-approval");
+    const harness = createStartedThreadHarness();
+    const run = runCodexAppServerAttempt(createParams(sessionFile, workspaceDir), {
+      pluginConfig: { appServer: { mode: "yolo" } },
+    });
+    await harness.waitForMethod("turn/start");
+    const changes = [
+      { path: "src/a.ts", kind: "update" },
+      { path: "src/b.ts", kind: "add" },
+    ];
+    await harness.notify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        item: {
+          type: "fileChange",
+          id: "patch-approval-1",
+          changes,
+          status: "inProgress",
+        },
+      },
+    });
+
+    await expect(
+      harness.handleServerRequest({
+        id: "request-file-approval-1",
+        method: "item/fileChange/requestApproval",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "patch-approval-1",
+          reason: "needs write access",
+          startedAtMs: 123,
+        },
+      }),
+    ).resolves.toEqual({ decision: "acceptForSession" });
+    expect(beforeToolCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: "apply_patch",
+        params: { changes },
+        toolCallId: "patch-approval-1",
+      }),
+      expect.any(Object),
+    );
+
+    await harness.notify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        item: {
+          type: "fileChange",
+          id: "patch-approval-1",
+          changes,
+          status: "completed",
+        },
+      },
+    });
+    await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
+    await run;
+  });
+
   it("keeps normalized full exec mode unpromoted when OpenClaw tool policy exists", async () => {
     initializeGlobalHookRunner(
       createMockPluginRegistry([{ hookName: "before_tool_call", handler: vi.fn() }]),

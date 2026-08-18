@@ -179,6 +179,12 @@ describe("Codex app-server approval bridge", () => {
         itemId: "patch-yolo",
         reason: "needs write access",
       },
+      fileChangeToolParams: {
+        changes: [
+          { path: "src/a.ts", kind: "update" },
+          { path: "src/b.ts", kind: "add" },
+        ],
+      },
       paramsForRun: params,
       threadId: "thread-1",
       turnId: "turn-1",
@@ -187,10 +193,53 @@ describe("Codex app-server approval bridge", () => {
 
     expect(result).toEqual({ decision: "acceptForSession" });
     expect(mockCallGatewayTool).not.toHaveBeenCalled();
+    expect(mockRunBeforeToolCallHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: "apply_patch",
+        params: {
+          changes: [
+            { path: "src/a.ts", kind: "update" },
+            { path: "src/b.ts", kind: "add" },
+          ],
+        },
+        toolCallId: "patch-yolo",
+        approvalMode: "request",
+      }),
+    );
     findApprovalEvent(params, {
       status: "approved",
       reason: "needs write access",
       message: "Codex app-server approval auto-approved by runtime policy.",
+    });
+  });
+
+  it("denies file approvals when proposed changes cannot be correlated", async () => {
+    const params = createParams();
+    const onNativeToolFailureDisposition = vi.fn();
+
+    const result = await handleCodexAppServerApprovalRequest({
+      method: "item/fileChange/requestApproval",
+      requestParams: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "patch-missing",
+        reason: "needs write access",
+      },
+      paramsForRun: params,
+      threadId: "thread-1",
+      turnId: "turn-1",
+      autoApprove: true,
+      onNativeToolFailureDisposition,
+    });
+
+    expect(result).toEqual({ decision: "decline" });
+    expect(mockRunBeforeToolCallHook).not.toHaveBeenCalled();
+    expect(mockCallGatewayTool).not.toHaveBeenCalled();
+    expect(onNativeToolFailureDisposition).toHaveBeenCalledWith("patch-missing", "failed");
+    findApprovalEvent(params, {
+      status: "denied",
+      message:
+        "OpenClaw could not correlate the Codex file-change approval with its proposed changes.",
     });
   });
 
@@ -1634,6 +1683,7 @@ describe("Codex app-server approval bridge", () => {
         itemId: "patch-native-relay-registered",
         reason: "needs write access",
       },
+      fileChangeToolParams: { changes: [{ path: "src/native.ts", kind: "update" }] },
       paramsForRun: params,
       threadId: "thread-1",
       turnId: "turn-1",
@@ -2256,6 +2306,7 @@ describe("Codex app-server approval bridge", () => {
         itemId: "patch-1",
         reason: "needs write access",
       },
+      fileChangeToolParams: { changes: [{ path: "src/a.ts", kind: "update" }] },
       paramsForRun: params,
       threadId: "thread-1",
       turnId: "turn-1",
@@ -2312,6 +2363,7 @@ describe("Codex app-server approval bridge", () => {
         itemId: "patch-sanitized",
         reason: "needs write access\nfor \u001b[31m/tmp\u001b[0m\tplease",
       },
+      fileChangeToolParams: { changes: [{ path: "/tmp", kind: "update" }] },
       paramsForRun: params,
       threadId: "thread-1",
       turnId: "turn-1",

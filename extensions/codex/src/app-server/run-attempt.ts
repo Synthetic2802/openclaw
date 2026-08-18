@@ -2377,6 +2377,10 @@ export async function runCodexAppServerAttempt(
           return handleApprovalRequest({
             method: request.method,
             params: request.params,
+            fileChangeToolParams:
+              request.method === "item/fileChange/requestApproval"
+                ? projector?.takeFileChangeApprovalToolParams(request.params)
+                : undefined,
             paramsForRun: params,
             threadId: thread.threadId,
             turnId,
@@ -3859,6 +3863,7 @@ function buildCodexAppServerTimeoutDiagnostics(params: {
 function handleApprovalRequest(params: {
   method: string;
   params: JsonValue | undefined;
+  fileChangeToolParams?: JsonObject;
   paramsForRun: EmbeddedRunAttemptParams;
   threadId: string;
   turnId: string;
@@ -3875,6 +3880,7 @@ function handleApprovalRequest(params: {
   return handleCodexAppServerApprovalRequest({
     method: params.method,
     requestParams: params.params,
+    fileChangeToolParams: params.fileChangeToolParams,
     paramsForRun: params.paramsForRun,
     threadId: params.threadId,
     turnId: params.turnId,

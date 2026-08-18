@@ -77,6 +77,7 @@ type SanitizedApprovalPreview = {
 export async function handleCodexAppServerApprovalRequest(params: {
   method: string;
   requestParams: JsonValue | undefined;
+  fileChangeToolParams?: JsonObject;
   paramsForRun: EmbeddedRunAttemptParams;
   threadId: string;
   turnId: string;
@@ -112,6 +113,7 @@ export async function handleCodexAppServerApprovalRequest(params: {
     const policyOutcome = await runOpenClawToolPolicyForApprovalRequest({
       method: params.method,
       requestParams,
+      fileChangeToolParams: params.fileChangeToolParams,
       paramsForRun: params.paramsForRun,
       context,
       nativeHookRelay: params.nativeHookRelay,
@@ -667,6 +669,7 @@ function readUnknownRecord(value: unknown): Record<string, unknown> | undefined 
 async function runOpenClawToolPolicyForApprovalRequest(params: {
   method: string;
   requestParams: JsonObject | undefined;
+  fileChangeToolParams?: JsonObject;
   paramsForRun: EmbeddedRunAttemptParams;
   context: ApprovalContext;
   nativeHookRelay?: Pick<
@@ -675,7 +678,19 @@ async function runOpenClawToolPolicyForApprovalRequest(params: {
   >;
   signal?: AbortSignal;
 }): Promise<ApprovalPolicyOutcome | undefined> {
-  const policyRequest = buildOpenClawToolPolicyRequest(params.method, params.requestParams);
+  if (params.method === "item/fileChange/requestApproval" && !params.fileChangeToolParams) {
+    return {
+      outcome: "denied",
+      reason:
+        "OpenClaw could not correlate the Codex file-change approval with its proposed changes.",
+      failureDisposition: "failed",
+    };
+  }
+  const policyRequest = buildOpenClawToolPolicyRequest(
+    params.method,
+    params.requestParams,
+    params.fileChangeToolParams,
+  );
   if (!policyRequest) {
     return undefined;
   }
@@ -961,6 +976,7 @@ function sanitizeRelayDecisionReason(value: string | undefined): string | undefi
 function buildOpenClawToolPolicyRequest(
   method: string,
   requestParams: JsonObject | undefined,
+  fileChangeToolParams?: JsonObject,
 ): { toolName: string; params: JsonObject } | undefined {
   if (method === "item/commandExecution/requestApproval") {
     const command = readPolicyCommand(requestParams);
@@ -974,7 +990,9 @@ function buildOpenClawToolPolicyRequest(
     };
   }
   if (method === "item/fileChange/requestApproval") {
-    return { toolName: "apply_patch", params: requestParams ?? {} };
+    return fileChangeToolParams
+      ? { toolName: "apply_patch", params: fileChangeToolParams }
+      : undefined;
   }
   if (method === "item/permissions/requestApproval") {
     return { toolName: "codex_permission_approval", params: requestParams ?? {} };

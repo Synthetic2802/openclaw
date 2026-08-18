@@ -3083,6 +3083,90 @@ describe("CodexAppServerEventProjector", () => {
     },
   );
 
+  it("correlates file-change approval args by thread, turn, and item exactly once", async () => {
+    const projector = await createProjector();
+    await projector.handleNotification(
+      forCurrentTurn("item/started", {
+        item: {
+          type: "fileChange",
+          id: "patch-correlated",
+          changes: [
+            { path: "src/a.ts", kind: "update" },
+            { path: "src/b.ts", kind: "add" },
+          ],
+          status: "inProgress",
+        },
+      }),
+    );
+
+    expect(
+      projector.takeFileChangeApprovalToolParams({
+        threadId: "other-thread",
+        turnId: TURN_ID,
+        itemId: "patch-correlated",
+      }),
+    ).toBeUndefined();
+    expect(
+      projector.takeFileChangeApprovalToolParams({
+        threadId: THREAD_ID,
+        turnId: "other-turn",
+        itemId: "patch-correlated",
+      }),
+    ).toBeUndefined();
+    expect(
+      projector.takeFileChangeApprovalToolParams({
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        itemId: "other-item",
+      }),
+    ).toBeUndefined();
+    const approvalParams = {
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+      itemId: "patch-correlated",
+    };
+    expect(projector.takeFileChangeApprovalToolParams(approvalParams)).toEqual({
+      changes: [
+        { path: "src/a.ts", kind: "update" },
+        { path: "src/b.ts", kind: "add" },
+      ],
+    });
+    expect(projector.takeFileChangeApprovalToolParams(approvalParams)).toBeUndefined();
+  });
+
+  it("cleans pending file-change approval args on item completion and finalization", async () => {
+    const projector = await createProjector();
+    const startedItem = {
+      type: "fileChange" as const,
+      id: "patch-cleanup",
+      changes: [{ path: "src/a.ts", kind: "update" }],
+      status: "inProgress" as const,
+    };
+    const approvalParams = {
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+      itemId: startedItem.id,
+    };
+
+    await projector.handleNotification(forCurrentTurn("item/started", { item: startedItem }));
+    await projector.handleNotification(
+      forCurrentTurn("item/completed", {
+        item: { ...startedItem, status: "declined" },
+      }),
+    );
+    expect(projector.takeFileChangeApprovalToolParams(approvalParams)).toBeUndefined();
+
+    await projector.handleNotification(
+      forCurrentTurn("item/started", {
+        item: { ...startedItem, id: "patch-finalize" },
+      }),
+    );
+    projector.buildResult(buildEmptyToolTelemetry());
+    expect(
+      projector.takeFileChangeApprovalToolParams({ ...approvalParams, itemId: "patch-finalize" }),
+    ).toBeUndefined();
+  });
+
   it("coalesces a native pre-tool failure with the matching item terminal", async () => {
     const projector = await createProjector();
     const diagnosticEvents: DiagnosticEventPayload[] = [];

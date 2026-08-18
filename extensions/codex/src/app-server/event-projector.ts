@@ -96,6 +96,7 @@ type CodexNativePreToolUseFailureRecord = {
 /** Projects metadata-only lifecycle diagnostics for native tool items. */
 export class CodexNativeToolLifecycleProjector {
   private readonly startedAtByItem = new Map<string, number>();
+  private readonly pendingFileChangeApprovalToolParamsByItem = new Map<string, JsonObject>();
   private readonly activeItems = new Map<
     string,
     { toolName: string; unfinishedStatus: CodexNativeToolUnfinishedStatus }
@@ -136,6 +137,7 @@ export class CodexNativeToolLifecycleProjector {
       for (const item of turn.items ?? []) {
         this.recordSnapshotItem(item);
       }
+      this.pendingFileChangeApprovalToolParamsByItem.clear();
       return;
     }
     if (notification.method === "rawResponseItem/completed") {
@@ -166,11 +168,22 @@ export class CodexNativeToolLifecycleProjector {
     item: CodexThreadItem;
     sourceTimestampMs?: number;
   }): void {
+    if (params.phase === "result") {
+      this.pendingFileChangeApprovalToolParamsByItem.delete(params.item.id);
+    }
     const toolName = auditNativeToolName(params.item);
     if (!toolName || this.completedItemIds.has(params.item.id)) {
       return;
     }
     if (params.phase === "start") {
+      if (params.item.type === "fileChange") {
+        // Codex awaits item/started before requesting approval. Keep these
+        // turn-owned args only until the matching blocking request consumes them.
+        this.pendingFileChangeApprovalToolParamsByItem.set(
+          params.item.id,
+          fileChangeToolArgs(params.item),
+        );
+      }
       this.recordStarted(
         params.item.id,
         toolName,
@@ -204,6 +217,23 @@ export class CodexNativeToolLifecycleProjector {
     if (!this.completedItemIds.has(toolCallId)) {
       this.approvalFailureDispositionByItem.set(toolCallId, disposition);
     }
+  }
+
+  takeFileChangeApprovalToolParams(requestParams: JsonValue | undefined): JsonObject | undefined {
+    const request = isJsonObject(requestParams) ? requestParams : undefined;
+    const itemId = readString(request, "itemId");
+    if (
+      !itemId ||
+      readString(request, "threadId") !== this.threadId ||
+      readString(request, "turnId") !== this.turnId
+    ) {
+      return undefined;
+    }
+    const toolParams = this.pendingFileChangeApprovalToolParamsByItem.get(itemId);
+    if (toolParams) {
+      this.pendingFileChangeApprovalToolParamsByItem.delete(itemId);
+    }
+    return toolParams;
   }
 
   recordPreToolUseFailure(
@@ -339,6 +369,7 @@ export class CodexNativeToolLifecycleProjector {
 
   finalizeActive(runWasAborted = this.options.runAbortSignal?.aborted === true): void {
     this.finalized = true;
+    this.pendingFileChangeApprovalToolParamsByItem.clear();
     for (const [toolCallId, { toolName, unfinishedStatus }] of this.activeItems) {
       const webSearchCompletion = this.webSearchCompletionByItem.get(toolCallId);
       const itemRunWasAborted = webSearchCompletion
@@ -647,6 +678,10 @@ export class CodexAppServerEventProjector {
     disposition: Exclude<BeforeToolCallFailureDisposition, "blocked">,
   ): void {
     this.nativeToolLifecycleProjector.recordApprovalFailureDisposition(toolCallId, disposition);
+  }
+
+  takeFileChangeApprovalToolParams(requestParams: JsonValue | undefined): JsonObject | undefined {
+    return this.nativeToolLifecycleProjector.takeFileChangeApprovalToolParams(requestParams);
   }
 
   recordNativeToolPreToolUseFailure(failure: CodexNativePreToolUseFailure): void {
@@ -2538,7 +2573,6 @@ function readNonNegativeInteger(record: JsonObject, key: string): number | undef
   return value !== undefined && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
-
 function readCodexErrorNotificationMessage(record: JsonObject): string | undefined {
   const error = record.error;
   return isJsonObject(error) ? readString(error, "message") : undefined;
@@ -2874,6 +2908,10 @@ function itemToolArgs(item: CodexThreadItem): Record<string, unknown> | undefine
     return sanitizeCodexToolArguments(item.arguments);
   }
   return undefined;
+}
+
+function fileChangeToolArgs(item: CodexThreadItem): JsonObject {
+  return { changes: itemFileChanges(item) };
 }
 
 function webSearchToolArgs(item: CodexThreadItem): Record<string, unknown> {
