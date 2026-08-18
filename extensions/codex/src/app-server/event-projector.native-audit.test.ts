@@ -6,6 +6,7 @@ import {
   it,
   vi,
   THREAD_ID,
+  TURN_ID,
   flushDiagnosticEvents,
   createParams,
   createProjector,
@@ -20,6 +21,79 @@ import {
 registerCodexEventProjectorTestLifecycle();
 
 describe("CodexAppServerEventProjector native tool audit projection", () => {
+  it("isolates and consumes correlated file-change approval params", async () => {
+    const projector = await createProjector(await createParams());
+    const changes = [{ path: "src/correlated.ts", kind: { type: "update" } }];
+
+    await projector.handleNotification(
+      forCurrentTurn("item/started", {
+        item: {
+          type: "fileChange",
+          id: "patch-correlated",
+          changes,
+          status: "inProgress",
+        },
+      }),
+    );
+
+    expect(
+      projector.takeFileChangeApprovalToolParams({
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        itemId: "patch-other",
+      }),
+    ).toBeUndefined();
+    expect(
+      projector.takeFileChangeApprovalToolParams({
+        threadId: THREAD_ID,
+        turnId: "turn-other",
+        itemId: "patch-correlated",
+      }),
+    ).toBeUndefined();
+    expect(
+      projector.takeFileChangeApprovalToolParams({
+        threadId: "thread-other",
+        turnId: TURN_ID,
+        itemId: "patch-correlated",
+      }),
+    ).toBeUndefined();
+    const requestParams = {
+      threadId: THREAD_ID,
+      turnId: TURN_ID,
+      itemId: "patch-correlated",
+    };
+    expect(projector.takeFileChangeApprovalToolParams(requestParams)).toEqual({ changes });
+    expect(projector.takeFileChangeApprovalToolParams(requestParams)).toBeUndefined();
+
+    await projector.handleNotification(
+      forCurrentTurn("item/started", {
+        item: {
+          type: "fileChange",
+          id: "patch-completed",
+          changes,
+          status: "inProgress",
+        },
+      }),
+    );
+    await projector.handleNotification(
+      forCurrentTurn("item/completed", {
+        item: {
+          type: "fileChange",
+          id: "patch-completed",
+          changes,
+          status: "completed",
+        },
+      }),
+    );
+    expect(
+      projector.takeFileChangeApprovalToolParams({
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        itemId: "patch-completed",
+      }),
+    ).toBeUndefined();
+  });
+
   it("synthesizes normalized tool progress for Codex-native tool items", async () => {
     const onAgentEvent = vi.fn();
     const projector = await createProjector({ ...(await createParams()), onAgentEvent });

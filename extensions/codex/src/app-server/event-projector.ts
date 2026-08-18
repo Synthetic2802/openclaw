@@ -245,6 +245,10 @@ export class CodexAppServerEventProjector {
     }
   }
 
+  takeFileChangeApprovalToolParams(requestParams: JsonValue | undefined): JsonObject | undefined {
+    return this.nativeToolLifecycleProjector.takeFileChangeApprovalToolParams(requestParams);
+  }
+
   recordNativeToolPreToolUseFailure(failure: CodexNativePreToolUseFailure): void {
     this.nativeToolLifecycleProjector.recordPreToolUseFailure(failure);
   }

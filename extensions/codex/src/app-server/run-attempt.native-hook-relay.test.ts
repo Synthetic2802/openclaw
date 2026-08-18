@@ -333,7 +333,7 @@ describe("runCodexAppServerAttempt native hook relay", () => {
     expect(nativeHookRelayTesting.getNativeHookRelayRegistrationForTests(relayId)).toBeUndefined();
   });
 
-  it("auto-answers defensive yolo command and workspace file approvals at their safe scopes", async () => {
+  it("auto-answers defensive yolo command and correlated workspace file approvals", async () => {
     const approvalSpy = vi.spyOn(approvalBridge, "handleCodexAppServerApprovalRequest");
     const beforeToolCall = vi.fn(() => undefined);
     initializeGlobalHookRunner(
@@ -378,6 +378,25 @@ describe("runCodexAppServerAttempt native hook relay", () => {
     expect(approvalSpy).toHaveBeenCalledWith(expect.objectContaining({ autoApprove: true }));
     // Commands backed by mutable file bytes cannot receive reusable approval.
     expect(commandResponse).toEqual({ decision: "accept" });
+    const changes = [
+      {
+        path: "memory/2026-07-29.md",
+        kind: { type: "add" },
+      },
+    ];
+    await harness.notify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        item: {
+          id: "patch-policy-allow",
+          type: "fileChange",
+          changes,
+          status: "inProgress",
+        },
+      },
+    });
     await expect(
       harness.handleServerRequest({
         id: "request-file-policy-allow",
@@ -393,7 +412,10 @@ describe("runCodexAppServerAttempt native hook relay", () => {
     ).resolves.toEqual({ decision: "acceptForSession" });
 
     expect(beforeToolCall).toHaveBeenCalledWith(
-      expect.objectContaining({ toolName: "apply_patch" }),
+      expect.objectContaining({
+        toolName: "apply_patch",
+        params: { changes },
+      }),
       expect.any(Object),
     );
     await harness.completeTurn({ threadId: "thread-1", turnId: "turn-1" });
