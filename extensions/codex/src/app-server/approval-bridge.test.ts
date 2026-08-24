@@ -320,6 +320,8 @@ describe("Codex app-server approval bridge", () => {
     "maps file operator decision %s to native %s",
     async (gatewayDecision, nativeDecision) => {
       const params = createParams();
+      const changes = [{ path: "memory/2026-07-29.md", kind: { type: "add" } }];
+
       mockCallGatewayTool
         .mockResolvedValueOnce({ id: `plugin:file-${gatewayDecision}`, status: "accepted" })
         .mockResolvedValueOnce({
@@ -334,6 +336,7 @@ describe("Codex app-server approval bridge", () => {
           itemId: `file-${gatewayDecision}`,
           reason: "update generated output",
         },
+        fileChangeToolParams: { changes },
         paramsForRun: params,
         ...codexTestTurnIds(),
       });
