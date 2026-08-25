@@ -89,3 +89,29 @@ export function buildCodexMessagesSnapshot(params: {
     }),
   );
 }
+
+export function buildCodexSteeringTranscriptPrefix(params: {
+  runParams: EmbeddedRunAttemptParams;
+  turnId: string;
+  upstreamUserText: string | undefined;
+  completedItemIds: ReadonlySet<string>;
+  asyncMessages: ReadonlyArray<{ itemId: string; message: AssistantMessage }>;
+  commentaryMessages: ReadonlyArray<{ itemId: string; message: AssistantMessage }>;
+  toolMessages: readonly AgentMessage[];
+  createAssistantMirrorMessage: (title: string, text: string) => AssistantMessage;
+}): AgentMessage[] {
+  return buildCodexMessagesSnapshot({
+    runParams: params.runParams,
+    turnId: params.turnId,
+    upstreamUserText: params.upstreamUserText,
+    reasoningText: undefined,
+    planText: undefined,
+    asyncMessages: params.asyncMessages.filter(({ itemId }) => params.completedItemIds.has(itemId)),
+    commentaryMessages: params.commentaryMessages.filter(({ itemId }) =>
+      params.completedItemIds.has(itemId),
+    ),
+    toolMessages: params.toolMessages,
+    lastAssistant: undefined,
+    createAssistantMirrorMessage: params.createAssistantMirrorMessage,
+  }).filter((message) => message.role !== "user");
+}

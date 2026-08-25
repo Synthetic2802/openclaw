@@ -27,7 +27,7 @@ import {
   buildCodexAttemptResult,
   type CodexAppServerToolTelemetry,
 } from "./event-projector-result.js";
-import { buildCodexMessagesSnapshot } from "./event-projector-snapshot.js";
+import { buildCodexSteeringTranscriptPrefix } from "./event-projector-snapshot.js";
 import { CodexToolProgressProjection } from "./event-projector-tool-progress.js";
 import { CodexToolTranscriptProjection } from "./event-projector-tool-transcript.js";
 import {
@@ -167,25 +167,17 @@ export class CodexAppServerEventProjector {
   }
 
   buildSteeringTranscriptPrefix(): AgentMessage[] {
-    const asyncMessages = this.assistantProjection
-      .collectAsyncMessages()
-      .filter(({ itemId }) => this.completedItemIds.has(itemId));
-    const commentaryMessages = this.assistantProjection
-      .collectCommentaryMessages()
-      .filter(({ itemId }) => this.completedItemIds.has(itemId));
-    return buildCodexMessagesSnapshot({
+    return buildCodexSteeringTranscriptPrefix({
       runParams: this.params,
       turnId: this.turnId,
       upstreamUserText: this.options.upstreamUserText,
-      reasoningText: undefined,
-      planText: undefined,
-      asyncMessages,
-      commentaryMessages,
+      completedItemIds: this.completedItemIds,
+      asyncMessages: this.assistantProjection.collectAsyncMessages(),
+      commentaryMessages: this.assistantProjection.collectCommentaryMessages(),
       toolMessages: this.toolTranscriptProjection.transcriptMessages,
-      lastAssistant: undefined,
       createAssistantMirrorMessage: (title, text) =>
         this.assistantProjection.createAssistantMirrorMessage(title, text),
-    }).filter((message) => message.role !== "user");
+    });
   }
 
   hasCompletedTerminalAssistantText(): boolean {
