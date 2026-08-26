@@ -131,6 +131,8 @@ export class CodexAppServerEventProjector {
       this.transcriptCheckpoint.nextTimestamp,
       {
         nativePostToolUseRelayEnabled: options.nativePostToolUseRelayEnabled,
+        resolveNativeFileChangeAfterToolCallCoverage:
+          options.resolveNativeFileChangeAfterToolCallCoverage,
         prepareNativeMcpAppResultDetails: options.prepareNativeMcpAppResultDetails,
         trajectoryRecorder: options.trajectoryRecorder,
         checkpointMessage: this.transcriptCheckpoint.enqueue,
@@ -321,6 +323,9 @@ export class CodexAppServerEventProjector {
       case "hook/started":
       case "hook/completed":
         this.eventProjection.handleHook(notification.method, params);
+        if (notification.method === "hook/completed") {
+          this.toolTranscriptProjection.settlePendingFileChangeAfterToolCallObservations();
+        }
         break;
       case "thread/tokenUsage/updated":
         projectCodexThreadUsageUpdate(
@@ -344,6 +349,9 @@ export class CodexAppServerEventProjector {
         break;
       case "turn/completed":
         await this.handleTurnCompleted(params);
+        this.toolTranscriptProjection.settlePendingFileChangeAfterToolCallObservations({
+          finalize: true,
+        });
         break;
       case "rawResponse/completed":
         this.responseCompletions.record(params);

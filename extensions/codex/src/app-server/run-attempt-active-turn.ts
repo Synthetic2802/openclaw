@@ -7,6 +7,7 @@ import {
   resolveAttemptFsWorkspaceOnly,
   setActiveEmbeddedRun,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
+import { hasNativeHookRelayInvocationForBundledRuntime } from "openclaw/plugin-sdk/native-hook-relay-runtime";
 import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-local-roots";
 import { hasPromptImageInput } from "openclaw/plugin-sdk/session-transcript-runtime";
 import {
@@ -81,6 +82,13 @@ export async function activateCodexAttemptTurn(
     attempt: dynamicToolParams,
   });
   const streamState = { eventEmitted: false, needsTerminalSnapshot: false };
+  const nativeHookRelay = resourceState.nativeHookRelay;
+  const nativePreToolUseRelayEnabled =
+    nativeHookRelay?.allowedEvents.includes("pre_tool_use") === true &&
+    nativeHookRelay.shouldRelayEvent("pre_tool_use");
+  const nativePostToolUseRelayEnabled =
+    nativeHookRelay?.allowedEvents.includes("post_tool_use") === true &&
+    nativeHookRelay.shouldRelayEvent("post_tool_use");
   emitExecutionPhaseOnce("turn_accepted", { phase: "turn_accepted" });
   userInputBridgeRef.current = createCodexUserInputBridge({
     paramsForRun: params,
@@ -109,10 +117,50 @@ export async function activateCodexAttemptTurn(
     activeTurnId,
     {
       initialContextTokens: connection.mutable.startupContextTokens,
-      nativePostToolUseRelayEnabled:
-        resourceState.nativeHookRelay?.allowedEvents.includes("post_tool_use") === true &&
-        resourceState.nativeHookRelay.shouldRelayEvent("post_tool_use"),
-      asyncUserMessageAllowed:
+      nativePostToolUseRelayEnabled,
+      ...(nativePostToolUseRelayEnabled && nativeHookRelay
+        ? {
+            resolveNativeFileChangeAfterToolCallCoverage: (toolUseId: string) => {
+              if (
+                hasNativeHookRelayInvocationForBundledRuntime({
+                  relayId: nativeHookRelay.relayId,
+                  event: "post_tool_use",
+                  toolUseId,
+                  toolName: "apply_patch",
+                })
+              ) {
+                return "native_apply_patch" as const;
+              }
+
+              if (!nativePreToolUseRelayEnabled) {
+                return "pending" as const;
+              }
+
+              if (
+                hasNativeHookRelayInvocationForBundledRuntime({
+                  relayId: nativeHookRelay.relayId,
+                  event: "pre_tool_use",
+                  toolUseId,
+                  toolName: "apply_patch",
+                })
+              ) {
+                return "pending" as const;
+              }
+
+              if (
+                hasNativeHookRelayInvocationForBundledRuntime({
+                  relayId: nativeHookRelay.relayId,
+                  event: "pre_tool_use",
+                  toolUseId,
+                })
+              ) {
+                return "intercepted" as const;
+              }
+
+              return "pending" as const;
+            },
+          }
+        : {}),      asyncUserMessageAllowed:
         params.disableTools !== true &&
         (params.toolsAllow === undefined ||
           toolBridge.availableTools.some((tool) => tool.name === "message")),

@@ -146,6 +146,7 @@ export class CodexToolTranscriptProjection {
   private readonly trajectoryNamesById = new Map<string, string>();
   private readonly trajectoryItemsById = new Map<string, CodexThreadItem>();
   private readonly afterToolCallObservedItemIds = new Set<string>();
+  private readonly pendingFileChangeAfterToolCallObservations = new Map<string, CodexThreadItem>();
   private readonly nativeMcpAppResultDetails = new Map<string, unknown>();
   private readonly nativeMcpAppResultDetailsAttempted = new Set<string>();
   private readonly approvalReviewsByCallId = new Map<string, ToolApprovalReviewState>();
@@ -161,6 +162,9 @@ export class CodexToolTranscriptProjection {
     private readonly nextTranscriptTimestamp: () => number,
     private readonly options: {
       nativePostToolUseRelayEnabled?: boolean;
+      resolveNativeFileChangeAfterToolCallCoverage?: (
+        toolUseId: string,
+      ) => "native_apply_patch" | "intercepted" | "pending";
       prepareNativeMcpAppResultDetails?: (item: CodexThreadItem) => Promise<unknown>;
       trajectoryRecorder?: CodexTrajectoryRecorder | null;
       checkpointMessage?: (entry: CodexTranscriptCheckpointEntry) => void;
@@ -499,20 +503,67 @@ export class CodexToolTranscriptProjection {
   }
 
   emitAfterToolCallObservation(item: CodexThreadItem): void {
+    if (
+      item.type === "fileChange" &&
+      this.options.nativePostToolUseRelayEnabled &&
+      !this.afterToolCallObservedItemIds.has(item.id)
+    ) {
+      const coverage =
+        this.options.resolveNativeFileChangeAfterToolCallCoverage?.(item.id) ?? "pending";
+
+      if (coverage === "native_apply_patch") {
+        this.afterToolCallObservedItemIds.add(item.id);
+        return;
+      }
+
+      if (coverage === "pending") {
+        this.pendingFileChangeAfterToolCallObservations.set(item.id, item);
+        return;
+      }
+    }
+
+    this.emitAfterToolCallObservationNow(item);
+  }
+
+  settlePendingFileChangeAfterToolCallObservations(options?: { finalize?: boolean }): void {
+    for (const [itemId, item] of this.pendingFileChangeAfterToolCallObservations) {
+      const coverage =
+        this.options.resolveNativeFileChangeAfterToolCallCoverage?.(itemId) ?? "pending";
+
+      if (coverage === "native_apply_patch") {
+        this.afterToolCallObservedItemIds.add(itemId);
+        this.pendingFileChangeAfterToolCallObservations.delete(itemId);
+        continue;
+      }
+
+      if (coverage === "intercepted" || options?.finalize === true) {
+        this.pendingFileChangeAfterToolCallObservations.delete(itemId);
+        this.emitAfterToolCallObservationNow(item);
+      }
+    }
+  }
+
+  private emitAfterToolCallObservationNow(item: CodexThreadItem): void {
     if (!this.shouldEmitAfterToolCallObservation(item)) {
       return;
     }
+
     const name = itemName(item);
     const status = itemStatus(item);
+
     if (!name || status === "running") {
       return;
     }
+
     this.afterToolCallObservedItemIds.add(item.id);
+
     const result = itemToolResult(item).result;
     const error =
       this.progress.approvalTimeoutExplanation(item.id, status) ??
       itemToolError(item, status, this.progress.outputTextByItem);
+
     const startedAt = resolveStartedAtFromDurationMs(item.durationMs);
+
     const hookParams = {
       toolName: name,
       toolCallId: item.id,
@@ -525,6 +576,7 @@ export class CodexToolTranscriptProjection {
       ...(error ? { error } : {}),
       ...(startedAt !== undefined ? { startedAt } : {}),
     };
+
     setImmediate(() => {
       void runAgentHarnessAfterToolCallHook(hookParams);
     });
@@ -668,7 +720,15 @@ export class CodexToolTranscriptProjection {
     ) {
       return false;
     }
-    return !(this.options.nativePostToolUseRelayEnabled && isNativePostToolUseRelayItem(item));
+    if (!this.options.nativePostToolUseRelayEnabled) {
+      return true;
+    }
+
+    if (item.type === "fileChange") {
+      return true;
+    }
+
+    return !isNativePostToolUseRelayItem(item);
   }
 
   private createToolCallMessage(params: ToolTranscriptCallInput): AgentMessage {
