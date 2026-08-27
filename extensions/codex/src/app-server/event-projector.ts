@@ -245,6 +245,10 @@ export class CodexAppServerEventProjector {
     }
   }
 
+  takeFileChangeApprovalToolParams(requestParams: JsonValue | undefined): JsonObject | undefined {
+    return this.nativeToolLifecycleProjector.takeFileChangeApprovalToolParams(requestParams);
+  }
+
   recordNativeToolPreToolUseFailure(failure: CodexNativePreToolUseFailure): void {
     this.nativeToolLifecycleProjector.recordPreToolUseFailure(failure);
   }
@@ -690,8 +694,7 @@ export class CodexAppServerEventProjector {
   }
 
   private isCurrentTurnSnapshotItem(item: CodexThreadItem): boolean {
-    const itemTurnId = readItemString(item, "turnId");
-    return itemTurnId === undefined || itemTurnId === this.turnId;
+    return (readItemString(item, "turnId") ?? this.turnId) === this.turnId;
   }
 
   private async handleRawResponseItemCompleted(params: JsonObject): Promise<void> {
