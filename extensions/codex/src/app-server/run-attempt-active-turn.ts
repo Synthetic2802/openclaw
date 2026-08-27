@@ -4,10 +4,10 @@ import {
   detectAndLoadAgentHarnessPromptImages,
   embeddedAgentLog,
   formatErrorMessage,
+  hasNativeHookRelayInvocation,
   resolveAttemptFsWorkspaceOnly,
   setActiveEmbeddedRun,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
-import { hasNativeHookRelayInvocationForBundledRuntime } from "openclaw/plugin-sdk/native-hook-relay-runtime";
 import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-local-roots";
 import { hasPromptImageInput } from "openclaw/plugin-sdk/session-transcript-runtime";
 import {
@@ -122,7 +122,7 @@ export async function activateCodexAttemptTurn(
         ? {
             resolveNativeFileChangeAfterToolCallCoverage: (toolUseId: string) => {
               if (
-                hasNativeHookRelayInvocationForBundledRuntime({
+                hasNativeHookRelayInvocation({
                   relayId: nativeHookRelay.relayId,
                   event: "post_tool_use",
                   toolUseId,
@@ -137,7 +137,7 @@ export async function activateCodexAttemptTurn(
               }
 
               if (
-                hasNativeHookRelayInvocationForBundledRuntime({
+                hasNativeHookRelayInvocation({
                   relayId: nativeHookRelay.relayId,
                   event: "pre_tool_use",
                   toolUseId,
@@ -148,7 +148,7 @@ export async function activateCodexAttemptTurn(
               }
 
               if (
-                hasNativeHookRelayInvocationForBundledRuntime({
+                hasNativeHookRelayInvocation({
                   relayId: nativeHookRelay.relayId,
                   event: "pre_tool_use",
                   toolUseId,

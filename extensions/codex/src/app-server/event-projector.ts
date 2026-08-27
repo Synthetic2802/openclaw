@@ -130,11 +130,7 @@ export class CodexAppServerEventProjector {
       this.toolProgressProjection,
       this.transcriptCheckpoint.nextTimestamp,
       {
-        nativePostToolUseRelayEnabled: options.nativePostToolUseRelayEnabled,
-        resolveNativeFileChangeAfterToolCallCoverage:
-          options.resolveNativeFileChangeAfterToolCallCoverage,
-        prepareNativeMcpAppResultDetails: options.prepareNativeMcpAppResultDetails,
-        trajectoryRecorder: options.trajectoryRecorder,
+        ...options,
         checkpointMessage: this.transcriptCheckpoint.enqueue,
       },
     );
