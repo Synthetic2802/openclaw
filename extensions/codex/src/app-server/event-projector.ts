@@ -49,7 +49,6 @@ import type { CodexApprovalKind } from "./plugin-approval-roundtrip.js";
 import { readCodexTurn } from "./protocol-validators.js";
 import {
   isJsonObject,
-  type CodexDynamicToolCallOutputContentItem,
   type CodexServerNotification,
   type CodexThreadItem,
   type CodexTurn,
@@ -62,6 +61,10 @@ import { createCodexUsageLimitPromptError } from "./usage-limit-error.js";
 
 export { shouldEmitTranscriptToolProgress } from "./event-projector-tool-progress.js";
 
+type DynamicToolResultParams = Parameters<
+  CodexToolProgressProjection["recordDynamicToolResult"]
+>[0] &
+  Parameters<CodexToolTranscriptProjection["recordDynamicToolResult"]>[0];
 export class CodexAppServerEventProjector {
   readonly transcriptCheckpoint: CodexTranscriptCheckpoint;
   private readonly asyncDeliveryProjection: CodexAsyncDeliveryProjection;
@@ -441,17 +444,7 @@ export class CodexAppServerEventProjector {
     }
   }
 
-  recordDynamicToolResult(params: {
-    callId: string;
-    tool: string;
-    asyncStarted?: boolean;
-    terminalResolution?: ReturnType<NonNullable<EmbeddedRunAttemptParams["observeToolTerminal"]>>;
-    success: boolean;
-    terminalType?: "blocked" | "completed" | "error";
-    sideEffectEvidence?: boolean;
-    contentItems: CodexDynamicToolCallOutputContentItem[];
-    details?: unknown;
-  }): void {
+  recordDynamicToolResult(params: DynamicToolResultParams): void {
     this.toolProgressProjection.recordDynamicToolResult(params);
     const source = this.options.resolveDynamicToolResultContentSource?.(params.tool);
     this.toolTranscriptProjection.recordDynamicToolResult(params, source);
