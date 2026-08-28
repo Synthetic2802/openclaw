@@ -236,4 +236,100 @@ describe("runCodexAppServerAttempt FileChange relay ownership", () => {
     expect(execEvents).toHaveLength(1);
     expect(beforeToolCall).toHaveBeenCalled();
   });
+
+  it("finalizes a pending intercepted fileChange when the client closes before turn completion", async () => {
+    const afterToolCall = vi.fn(async () => undefined);
+
+    initializeGlobalHookRunner(
+      createMockPluginRegistry([
+        {
+          hookName: "after_tool_call",
+          handler: afterToolCall,
+        },
+      ]),
+    );
+
+    const sessionFile = path.join(tempDir, "file-change-client-close.jsonl");
+    const workspaceDir = path.join(tempDir, "file-change-client-close-workspace");
+    const harness = createStartedThreadHarness();
+
+    const run = runCodexAppServerAttempt(createParams(sessionFile, workspaceDir), {
+      nativeHookRelay: {
+        enabled: true,
+        events: ["pre_tool_use", "post_tool_use"],
+      },
+    });
+
+    await harness.waitForMethod("turn/start");
+
+    const startRequest = harness.requests.find((request) => request.method === "thread/start");
+    const relayId = extractRelayIdFromThreadRequest(startRequest?.params);
+
+    const interceptedPatch =
+      "apply_patch <<'PATCH'\n*** Begin Patch\n*** Add File: client-close.txt\n+client-close\n*** End Patch\nPATCH\n";
+
+    await invokeNativeHookRelay({
+      provider: "codex",
+      relayId,
+      event: "post_tool_use",
+      rawPayload: {
+        hook_event_name: "PostToolUse",
+        tool_name: "Bash",
+        tool_use_id: "patch-client-close",
+        tool_input: {
+          cmd: interceptedPatch,
+        },
+        tool_response: {
+          output: "Done!",
+          exit_code: 0,
+        },
+      },
+    });
+
+    await notifyFileChange(harness, {
+      id: "patch-client-close",
+      path: "client-close.txt",
+    });
+
+    expect(afterToolCallsFor(afterToolCall, "apply_patch")).toHaveLength(0);
+
+    harness.close(
+      new Error('codex app-server exited: code=137 signal=SIGKILL stderr="worker exhausted"'),
+    );
+
+    const result = await run;
+
+    await vi.waitFor(() => {
+      expect(afterToolCallsFor(afterToolCall, "apply_patch")).toHaveLength(1);
+    });
+
+    expect(result.codexAppServerFailure?.kind).toBe("client_closed_before_turn_completed");
+
+    const applyPatchEvent = afterToolCallsFor(afterToolCall, "apply_patch")[0];
+
+    expect(applyPatchEvent?.toolCallId).toBe("patch-client-close");
+
+    expect(applyPatchEvent?.params).toEqual({
+      changes: [
+        {
+          path: "client-close.txt",
+          kind: {
+            type: "add",
+          },
+        },
+      ],
+    });
+
+    expect(applyPatchEvent?.result).toEqual({
+      status: "completed",
+      changes: [
+        {
+          path: "client-close.txt",
+          kind: {
+            type: "add",
+          },
+        },
+      ],
+    });
+  });
 });

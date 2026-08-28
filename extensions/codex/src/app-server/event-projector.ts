@@ -348,9 +348,7 @@ export class CodexAppServerEventProjector {
         break;
       case "turn/completed":
         await this.handleTurnCompleted(params);
-        this.toolTranscriptProjection.settlePendingFileChangeAfterToolCallObservations({
-          finalize: true,
-        });
+        this.finalizePendingFileChangeAfterToolCallObservations();
         break;
       case "rawResponse/completed":
         this.responseCompletions.record(params);
@@ -391,6 +389,12 @@ export class CodexAppServerEventProjector {
         this.diagnostics.warnUnknownEvent(notification, params);
         break;
     }
+  }
+
+  finalizePendingFileChangeAfterToolCallObservations(): void {
+    this.toolTranscriptProjection.settlePendingFileChangeAfterToolCallObservations({
+      finalize: true,
+    });
   }
 
   buildResult(
