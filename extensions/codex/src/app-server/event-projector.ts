@@ -633,7 +633,7 @@ export class CodexAppServerEventProjector {
     // Only its last relevant tool may change the terminal presentation.
     for (let index = turnItems.length - 1; index >= 0; index -= 1) {
       const item = turnItems[index];
-      if (!item || !this.isCurrentTurnSnapshotItem(item)) {
+      if (!item || (readItemString(item, "turnId") ?? this.turnId) !== this.turnId) {
         continue;
       }
       if (item?.type === "dynamicToolCall") {
@@ -676,7 +676,7 @@ export class CodexAppServerEventProjector {
   private async emitSnapshotOnlyNativeToolProgress(item: CodexThreadItem): Promise<void> {
     if (
       !shouldSynthesizeToolProgressForItem(item) ||
-      !this.isCurrentTurnSnapshotItem(item) ||
+      (readItemString(item, "turnId") ?? this.turnId) !== this.turnId ||
       this.completedItemIds.has(item.id) ||
       itemStatus(item) === "running"
     ) {
@@ -691,10 +691,6 @@ export class CodexAppServerEventProjector {
     this.eventProjection.emitStandardItemEvent({ phase: "end", item });
     await this.eventProjection.emitNormalizedToolItemEvent({ phase: "result", item });
     this.completedItemIds.add(item.id);
-  }
-
-  private isCurrentTurnSnapshotItem(item: CodexThreadItem): boolean {
-    return (readItemString(item, "turnId") ?? this.turnId) === this.turnId;
   }
 
   private async handleRawResponseItemCompleted(params: JsonObject): Promise<void> {
