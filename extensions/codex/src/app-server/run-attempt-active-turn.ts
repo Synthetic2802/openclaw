@@ -160,7 +160,8 @@ export async function activateCodexAttemptTurn(
               return "pending" as const;
             },
           }
-        : {}),      asyncUserMessageAllowed:
+        : {}),
+      asyncUserMessageAllowed:
         params.disableTools !== true &&
         (params.toolsAllow === undefined ||
           toolBridge.availableTools.some((tool) => tool.name === "message")),
