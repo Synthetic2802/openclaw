@@ -53,6 +53,7 @@ export class SessionProgressHovercardProvider extends ReactiveElement {
   private activeTarget: HTMLElement | null = null;
   private activeTrigger: HTMLElement | null = null;
   private activeSessionKey: string | null = null;
+  private activeProgressSessionKey: string | null = null;
   private activePullRequestKey: string | null = null;
   private suppressFocusOpen = false;
   private open = false;
@@ -176,11 +177,11 @@ export class SessionProgressHovercardProvider extends ReactiveElement {
   }
 
   private readonly handleProgressCardUpdate = () => {
-    const sessionKey = this.activeSessionKey;
-    if (!sessionKey || !this.open || !this.hovercard.held) {
+    const progressSessionKey = this.activeProgressSessionKey;
+    if (!progressSessionKey || !this.open || !this.hovercard.held) {
       return;
     }
-    const card = this.progressCards?.get(sessionKey);
+    const card = this.progressCards?.get(progressSessionKey);
     if (card !== undefined) {
       this.lastProgressCard = card;
     }
@@ -285,7 +286,12 @@ export class SessionProgressHovercardProvider extends ReactiveElement {
     if (!sessionKey) {
       return;
     }
-    if (target === this.activeTarget && sessionKey === this.activeSessionKey) {
+    const progressSessionKey = target.dataset.progressSessionKey ?? sessionKey;
+    if (
+      target === this.activeTarget &&
+      sessionKey === this.activeSessionKey &&
+      progressSessionKey === this.activeProgressSessionKey
+    ) {
       if (trigger !== this.activeTrigger) {
         this.hovercard.reset();
         this.activeTrigger = trigger;
@@ -295,7 +301,10 @@ export class SessionProgressHovercardProvider extends ReactiveElement {
         } else {
           this.animateNextOpen = animateEntry;
           const generation = ++this.loadGeneration;
-          this.hovercard.scheduleOpen(delay, () => void this.loadAndShow(sessionKey, generation));
+          this.hovercard.scheduleOpen(
+            delay,
+            () => void this.loadAndShow(sessionKey, progressSessionKey, generation),
+          );
         }
       }
       return;
@@ -304,10 +313,11 @@ export class SessionProgressHovercardProvider extends ReactiveElement {
     this.activeTarget = target;
     this.activeTrigger = trigger;
     this.activeSessionKey = sessionKey;
+    this.activeProgressSessionKey = progressSessionKey;
     this.open = false;
     this.animateNextOpen = animateEntry;
     this.lastProgressCard = null;
-    this.progressCards?.watch(this, [sessionKey]);
+    this.progressCards?.watch(this, [progressSessionKey]);
     this.hovercard.markTrigger(trigger);
     this.activeTargetObserver.observe(this, {
       attributes: true,
@@ -316,10 +326,17 @@ export class SessionProgressHovercardProvider extends ReactiveElement {
       subtree: true,
     });
     const generation = ++this.loadGeneration;
-    this.hovercard.scheduleOpen(delay, () => void this.loadAndShow(sessionKey, generation));
+    this.hovercard.scheduleOpen(
+      delay,
+      () => void this.loadAndShow(sessionKey, progressSessionKey, generation),
+    );
   }
 
-  private async loadAndShow(sessionKey: string, generation: number): Promise<void> {
+  private async loadAndShow(
+    sessionKey: string,
+    progressSessionKey: string,
+    generation: number,
+  ): Promise<void> {
     const target = this.activeTarget;
     if (target instanceof HTMLAnchorElement && target.dataset.sessionKey === sessionKey) {
       void this.sessionLinkTitler.decorate(target, true);
@@ -327,6 +344,7 @@ export class SessionProgressHovercardProvider extends ReactiveElement {
     if (
       generation !== this.loadGeneration ||
       this.activeSessionKey !== sessionKey ||
+      this.activeProgressSessionKey !== progressSessionKey ||
       !target ||
       sessionHovercardMenuOpen(this) ||
       !this.hovercard.held
@@ -339,13 +357,14 @@ export class SessionProgressHovercardProvider extends ReactiveElement {
     this.watchPullRequests(sessionKey);
     this.showCurrent();
     try {
-      await this.progressCards?.load(sessionKey);
+      await this.progressCards?.load(progressSessionKey);
     } catch {
       // Session facts and the last successful card remain useful when refresh fails.
     }
     if (
       generation === this.loadGeneration &&
       this.activeSessionKey === sessionKey &&
+      this.activeProgressSessionKey === progressSessionKey &&
       this.hovercard.held
     ) {
       this.showCurrent();
@@ -376,7 +395,8 @@ export class SessionProgressHovercardProvider extends ReactiveElement {
   private showCurrent(): void {
     const target = this.activeTarget;
     const sessionKey = this.activeSessionKey;
-    if (!target || !sessionKey || !this.open) {
+    const progressSessionKey = this.activeProgressSessionKey;
+    if (!target || !sessionKey || !progressSessionKey || !this.open) {
       return;
     }
     const sidebarRow =
@@ -386,7 +406,7 @@ export class SessionProgressHovercardProvider extends ReactiveElement {
     const pullRequests = this.activePullRequestKey
       ? this.pullRequests?.get(this.activePullRequestKey)
       : undefined;
-    const currentProgressCard = this.progressCards?.get(sessionKey);
+    const currentProgressCard = this.progressCards?.get(progressSessionKey);
     if (currentProgressCard !== undefined) {
       this.lastProgressCard = currentProgressCard;
     }
@@ -580,6 +600,7 @@ export class SessionProgressHovercardProvider extends ReactiveElement {
     this.activeTarget = null;
     this.activeTrigger = null;
     this.activeSessionKey = null;
+    this.activeProgressSessionKey = null;
     if (wasOpen) {
       this.clearSkipDelayTimer();
       this.skipDelayTimer = window.setTimeout(() => {

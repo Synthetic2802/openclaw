@@ -652,6 +652,7 @@ suite.define(() => {
   it("renders and dismisses synthetic catalog-session hovercards", async () => {
     const selectedSessionKey = "agent:main:catalog-selected";
     const catalogSessionKey = "catalog:codex:gateway%3Acodex:thread-1";
+    const catalogProgressSessionKey = `agent:main:${catalogSessionKey}`;
 
     await suite.withPage(
       {
@@ -662,7 +663,7 @@ suite.define(() => {
       },
       async ({ page }) => {
         const nowSeconds = Math.floor(Date.now() / 1000);
-        await installMockGateway(page, {
+        const gateway = await installMockGateway(page, {
           featureMethods: [
             "chat.metadata",
             "chat.startup",
@@ -670,7 +671,21 @@ suite.define(() => {
             "sessions.catalog.list",
           ],
           methodResponses: {
-            "progressCard.get": { card: null },
+            "progressCard.get": {
+              cases: [
+                { match: { sessionKey: selectedSessionKey }, response: { card: null } },
+                {
+                  match: { sessionKey: catalogSessionKey },
+                  response: {
+                    __mockError: {
+                      code: "INVALID_REQUEST",
+                      message: "ownerless catalog session key rejected",
+                    },
+                  },
+                },
+                { match: { sessionKey: catalogProgressSessionKey }, response: { card: null } },
+              ],
+            },
             "sessions.list": chatSessionListResponse([
               { key: selectedSessionKey, kind: "direct", label: "Selected", updatedAt: 1 },
             ]),
@@ -712,9 +727,27 @@ suite.define(() => {
         await page.goto(controlUiSessionUrl(suite.server.baseUrl, selectedSessionKey));
         const row = page.locator(`[data-session-key="${catalogSessionKey}"]`);
         await row.waitFor({ state: "visible" });
+        expect(await row.getAttribute("data-session-key")).toBe(catalogSessionKey);
+        expect(await row.getAttribute("data-progress-session-key")).toBe(catalogProgressSessionKey);
         await row.hover();
         const card = page.locator(".session-progress-hovercard");
         await card.waitFor({ state: "visible" });
+        await expect
+          .poll(
+            async () =>
+              (await gateway.getRequests("progressCard.get")).filter(
+                (request) =>
+                  isRecord(request.params) &&
+                  request.params.sessionKey === catalogProgressSessionKey,
+              ).length,
+          )
+          .toBe(1);
+        expect(
+          (await gateway.getRequests("progressCard.get")).filter(
+            (request) =>
+              isRecord(request.params) && request.params.sessionKey === catalogSessionKey,
+          ),
+        ).toHaveLength(0);
         expect(await card.locator(".session-hovercard__title").textContent()).toBe(
           "Catalog release review",
         );

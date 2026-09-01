@@ -543,6 +543,7 @@ function renderCatalogSessionRow(
       style=${color ? `--session-color: var(--session-color-${color})` : nothing}
       data-session-key=${key}
       data-catalog-session-key=${identityKey}
+      data-progress-session-key=${paneKey}
       data-session-row-action-count="1"
       role="listitem"
       @contextmenu=${openMenuFromEvent}
